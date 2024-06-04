@@ -2,8 +2,11 @@
   "name": "contesthub-server",
   "version": "1.0.0",
   "main": "index.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js",
+    "server": "nodemon index.js"
   },
   "keywords": [],
   "author": "",
@@ -11,6 +14,11 @@
   "description": "",
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "dotenv": "^16.4.5",
+    "body-parser": "^1.20.2",
+    "cookie-parser": "^1.4.6",
+    "mongodb": "^6.6.1",
+    "jsonwebtoken": "^9.0.2"
   }
 }
