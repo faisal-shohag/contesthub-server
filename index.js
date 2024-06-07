@@ -94,7 +94,19 @@ async function run() {
       res.send({success: true, data:contest});
     })
 
-    
+    app.put('/contests/:id', async (req, res) => {
+      const id = req.params.id;
+      const contest = req.body;
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: contest,
+      };
+      const result = await contestsCollection.updateOne(filter, updateDoc, options);
+      res.send({success: true, data:result});
+    })
+
+
 
 
 
