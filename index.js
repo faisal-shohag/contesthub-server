@@ -94,6 +94,61 @@ async function run() {
       res.send({success: true, data:contest});
     })
 
+    app.get('/my_contests/:email', async (req, res) => {
+      const email = req.params.email;
+      const page = parseInt(req.query.page) || 1; // Default to page 1 if not provided
+      const limit = 10; // 10 items per page
+      const skip = (page - 1) * limit;
+    
+      try {
+        const contests = await contestsCollection
+          .find({ creator_email: email })
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+    
+        const totalContests = await contestsCollection.countDocuments({ creator_email: email });
+    
+        res.send({
+          success: true,
+          data: contests,
+          page: page,
+          totalPages: Math.ceil(totalContests / limit),
+          totalItems: totalContests
+        });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
+    app.get('/all_contests', async (req, res) => {
+      const page = parseInt(req.query.page) || 1; // Default to page 1 if not provided
+      const limit = 10; // 10 items per page
+      const skip = (page - 1) * limit;
+    
+      try {
+        const contests = await contestsCollection
+          .find()
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+    
+        const totalContests = await contestsCollection.countDocuments();
+    
+        res.send({
+          success: true,
+          data: contests,
+          page: page,
+          totalPages: Math.ceil(totalContests / limit),
+          totalItems: totalContests
+        });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+    
+    
+
     app.put('/contests/:id', async (req, res) => {
       const id = req.params.id;
       const contest = req.body;
