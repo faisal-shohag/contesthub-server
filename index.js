@@ -88,6 +88,16 @@ async function run() {
       res.send({success: true, data:result});
     })
 
+    app.get('/contests/:id', async (req, res) => {
+      const id = req.params.id;
+      const contest = await contestsCollection.findOne({_id: new ObjectId(id)});
+      res.send({success: true, data:contest});
+    })
+
+    
+
+
+
   } finally {
     //setTimeout(() => {client.close()}, 1500)
   }
