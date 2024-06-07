@@ -37,6 +37,8 @@ app.listen(PORT, () => {
   console.log(`🚀 App is Running on ${PORT}`);
 });
 
+
+
 async function run() {
   try {
     const database = client.db("contestHub");
@@ -50,16 +52,39 @@ async function run() {
     });
 
     app.get('/users', async (req, res) => {
-      const users = await usersCollection.find().toArray();
+      const users = await usersCollection.find().sort({ name: 1 }).toArray();
       res.send({success: true, data:users})
     })
 
 
 
-    // post
+    // post+
     app.post('/user', async (req, res) => {
       const user = req.body;
+      const getUser = await usersCollection.findOne({email: user.email});
+      if(getUser) return res.send({success: false, message: "User already exists"})
       const result = await usersCollection.insertOne(user);
+      res.send({success: true, data:result});
+    })
+
+    app.put('/users/:id', async (req, res) => {
+      const id = req.params.id;
+      const user = req.body;
+      console.log(user);
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: user,
+      };
+      const result = await usersCollection.updateOne(filter, updateDoc, options);
+      res.send({success: true, data:result});
+    })
+
+
+    // contests
+    app.post('/contests', async (req, res) => {
+      const contest = req.body;
+      const result = await contestsCollection.insertOne(contest);
       res.send({success: true, data:result});
     })
 
