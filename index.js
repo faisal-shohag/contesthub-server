@@ -7,6 +7,10 @@ import { client } from "./Database/db.config.js";
 import jwt from "jsonwebtoken";
 import { ObjectId } from "mongodb";
 
+import stripe from "stripe";
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+stripe(stripeSecretKey)
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -18,7 +22,7 @@ const cookieOptions = {
 
 app.use(
   cors({
-    origin: ["http://localhost:5173", "https://taskph11.netlify.app"],
+    origin: ["http://localhost:5173", "https://taskph12.netlify.app"],
     credentials: true,
   })
 );
@@ -44,12 +48,10 @@ async function run() {
     const database = client.db("contestHub");
     const contestsCollection = database.collection("contests");
     const usersCollection = database.collection("users");
+    const participationCollection = database.collection('participations')
 
-    app.get("/contests", async (req, res) => {
-      let contests = contestsCollection.find().sort({ due: -1 });
-      contests = await contests.toArray();
-      res.status(200).send({ success: true, data: contests });
-    });
+ 
+
 
     app.get('/users', async (req, res) => {
       const users = await usersCollection.find().sort({ name: 1 }).toArray();
@@ -82,17 +84,216 @@ async function run() {
 
 
     // contests
+    app.get("/contests", async (req, res) => {
+      try {
+        const contests = await contestsCollection.aggregate([
+          {
+            $match: {
+              status: 'approved'  // Only approved contests
+            }
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'creator_email',
+              foreignField: 'email',
+              as: 'creatorDetails'
+            }
+          },
+          {
+            $unwind: {
+              path: '$creatorDetails',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $lookup: {
+              from: 'participations',
+              localField: '_id',
+              foreignField: 'contestId',
+              as: 'participations'
+            }
+          },
+          {
+            $addFields: {
+              participationsCount: { $size: '$participations' }
+            }
+          },
+          {
+            $sort: { due: -1 }
+          },
+          {
+            $project: {
+              name: 1,
+              image: 1,
+              description: 1,
+              price: 1,
+              price_money: 1,
+              instruction: 1,
+              type: 1,
+              due: 1,
+              status: 1,
+              creator_email: 1,
+              'creatorDetails.name': 1,
+              'creatorDetails.email': 1,
+              'creatorDetails.photoURL': 1,
+              participationsCount: 1
+            }
+          }
+        ]).toArray();
+    
+        res.status(200).send({ success: true, data: contests });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
+
+    //contest search
+    app.get('/contests/search', async (req, res) => {
+      const keyword = req.query.keyword;
+      
+      if (!keyword) {
+        return  res.send({
+          success: true,
+          data: []
+        });
+      }
+    
+      try {
+        const regex = new RegExp(keyword, 'i'); // 'i' for case-insensitive
+        
+        const contests = await contestsCollection.aggregate([
+          {
+            $match: {
+              type: { $regex: regex },
+              status: 'approved'
+            }
+          },
+          {
+            $lookup: {
+              from: 'participations',
+              localField: '_id',
+              foreignField: 'contestId',
+              as: 'participations'
+            }
+          },
+          {
+            $addFields: {
+              participationsCount: { $size: '$participations' }
+            }
+          },
+          {
+            $sort: { participationsCount: -1 }
+          },
+          {
+            $project: {
+              name: 1,
+              image: 1,
+              price: 1,
+              price_money: 1,
+              due: 1,
+              creator_email: 1,
+              type: 1,
+              participationsCount: 1
+            }
+          }
+        ]).toArray();
+    
+        res.send({
+          success: true,
+          data: contests
+        });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
+
+
     app.post('/contests', async (req, res) => {
       const contest = req.body;
       const result = await contestsCollection.insertOne(contest);
       res.send({success: true, data:result});
     })
 
+
+    // get individual contest with all info
     app.get('/contests/:id', async (req, res) => {
       const id = req.params.id;
-      const contest = await contestsCollection.findOne({_id: new ObjectId(id)});
-      res.send({success: true, data:contest});
-    })
+      try {
+        const contest = await contestsCollection.aggregate([
+          {
+            $match: {
+              _id: new ObjectId(id)
+            }
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'creator_email',
+              foreignField: 'email',
+              as: 'creatorDetails'
+            }
+          },
+          {
+            $unwind: {
+              path: '$creatorDetails',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $lookup: {
+              from: 'participations',
+              localField: '_id',
+              foreignField: 'contestId',
+              as: 'participations'
+            }
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'participations.userId',
+              foreignField: '_id',
+              as: 'participatorsDetails'
+            }
+          },
+          {
+            $project: {
+              name: 1,
+              image: 1,
+              description: 1,
+              price: 1,
+              price_money: 1,
+              instruction: 1,
+              type: 1,
+              due: 1,
+              status: 1,
+              creator_email: 1,
+              'creatorDetails.name': 1,
+              'creatorDetails.email': 1,
+              'creatorDetails.photoURL': 1,
+              participations: 1,
+              participatorsDetails: {
+                _id: 1,
+                name: 1,
+                email: 1,
+                photoURL: 1
+              }
+            }
+          }
+        ]).toArray();
+    
+        if (contest.length === 0) {
+          return res.status(404).send({ success: false, message: 'Contest not found' });
+        }
+    
+        res.send({ success: true, data: contest[0] });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+    
 
     app.get('/my_contests/:email', async (req, res) => {
       const email = req.params.email;
@@ -160,6 +361,28 @@ async function run() {
       const result = await contestsCollection.updateOne(filter, updateDoc, options);
       res.send({success: true, data:result});
     })
+
+
+
+    // participations
+    app.post('/participations', async (req, res) => {
+      const participation = req.body;
+      const result = await participationCollection.insertOne(participation);
+      res.send({success: true, data:result});
+    })
+
+
+    //payment intent
+    app.post('/create-payment-intent', async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100);
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: 'usd',
+        payment_method_types: ['card']
+      });
+      res.send({ clientSecret: paymentIntent.client_secret });
+    });
 
 
 
