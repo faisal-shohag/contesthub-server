@@ -7,9 +7,9 @@ import { client } from "./Database/db.config.js";
 import jwt from "jsonwebtoken";
 import { ObjectId } from "mongodb";
 
-import stripe from "stripe";
+import Stripe from "stripe";
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-stripe(stripeSecretKey)
+const stripe = new Stripe(stripeSecretKey);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -383,6 +383,13 @@ async function run() {
       });
       res.send({ clientSecret: paymentIntent.client_secret });
     });
+
+
+    app.post('/payments', async (req, res) => {
+      const payment = req.body;
+      const result = await participationCollection.insertOne(payment);
+      res.send({ success: true, data: result });
+    })
 
 
 
