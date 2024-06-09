@@ -109,8 +109,14 @@ async function run() {
           {
             $lookup: {
               from: 'participations',
-              localField: '_id',
-              foreignField: 'contestId',
+              let: { contestId: { $toString: '$_id' } },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $eq: ['$contestId', '$$contestId'] }
+                  }
+                }
+              ],
               as: 'participations'
             }
           },
@@ -168,8 +174,6 @@ async function run() {
             $match: {
               status: 'approved',
               $or: [
-                { name: { $regex: regex } },
-                { description: { $regex: regex } },
                 { type: { $regex: regex } }
               ]
             }
