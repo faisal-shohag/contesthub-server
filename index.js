@@ -160,6 +160,77 @@ async function run() {
       }
     });
 
+    //popular contests
+    app.get("/popular-contests", async (req, res) => {
+      try {
+        const contests = await contestsCollection.aggregate([
+          {
+            $match: {
+              status: 'approved'  // Only approved contests
+            }
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'creator_email',
+              foreignField: 'email',
+              as: 'creatorDetails'
+            }
+          },
+          {
+            $unwind: {
+              path: '$creatorDetails',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $lookup: {
+              from: 'participations',
+              let: { contestId: { $toString: '$_id' } },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $eq: ['$contestId', '$$contestId'] }
+                  }
+                }
+              ],
+              as: 'participations'
+            }
+          },
+          {
+            $addFields: {
+              participationsCount: { $size: '$participations' }
+            }
+          },
+          {
+            $sort: { participationsCount: -1 }
+          },
+          {
+            $project: {
+              name: 1,
+              image: 1,
+              description: 1,
+              price: 1,
+              price_money: 1,
+              instruction: 1,
+              type: 1,
+              due: 1,
+              status: 1,
+              creator_email: 1,
+              'creatorDetails.name': 1,
+              'creatorDetails.email': 1,
+              'creatorDetails.photoURL': 1,
+              participationsCount: 1
+            }
+          }
+        ]).limit(5).toArray();
+    
+        res.status(200).send({ success: true, data: contests });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
 
     //contest search
     app.get('/contests/search', async (req, res) => {
@@ -300,6 +371,33 @@ async function run() {
           },
           {
             $addFields: {
+              participations: {
+                $map: {
+                  input: '$participations',
+                  as: 'participation',
+                  in: {
+                    $mergeObjects: [
+                      '$$participation',
+                      {
+                        $arrayElemAt: [
+                          {
+                            $filter: {
+                              input: '$participantDetails',
+                              as: 'participantDetail',
+                              cond: { $eq: ['$$participantDetail.email', '$$participation.user_email'] }
+                            }
+                          },
+                          0
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            $addFields: {
               participationsCount: { $size: '$participations' }
             }
           },
@@ -313,11 +411,12 @@ async function run() {
               instruction: 1,
               type: 1,
               due: 1,
+              isDecided: 1,
               status: 1,
               creator_email: 1,
               creatorDetails: { name: 1, email: 1, photoURL: 1 },
               participationsCount: 1,
-              participantDetails: 1
+              participations: 1
             }
           }
         ]).toArray();
@@ -419,12 +518,11 @@ async function run() {
         const result = await contestsCollection.updateOne(
           { _id: new ObjectId(contestId) },
           {
-            $push: { comments: comment }
-          },
-          { upsert: true }
+            $set: { comment: comment }
+          }
         );
     
-        if (result.matchedCount === 0 && result.upsertedCount === 0) {
+        if (result.matchedCount === 0) {
           return res.status(404).send({ success: false, message: 'Contest not found' });
         }
     
@@ -440,6 +538,30 @@ async function run() {
       const result = await participationCollection.insertOne(participation);
       res.send({success: true, data:result});
     })
+
+    app.post('/submit-task', async (req, res) => {
+      const { contestId, user_email, updateFields } = req.body;
+    
+      if (!contestId || !user_email || !updateFields) {
+        return res.status(400).send({ success: false, message: 'contestId, user_email, and updateFields are required' });
+      }
+    
+      try {
+        const result = await participationCollection.updateOne(
+          { contestId: contestId, user_email: user_email },
+          { $set: updateFields }
+        );
+    
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ success: false, message: 'Participation not found' });
+        }
+    
+        res.status(200).send({ success: true, message: 'Participation updated successfully' });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
 
     //payment intent
     app.post('/create-payment-intent', async (req, res) => {
