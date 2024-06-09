@@ -385,9 +385,16 @@ async function run() {
         res.status(500).send({ success: false, message: error.message });
       }
     });
-    
-    
 
+    app.get('/contests-all', async (req, res) => {
+      try {
+        const contests = await contestsCollection.find().toArray();
+        res.send({ success: true, data: contests });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    })
+    
     app.put('/contests/:id', async (req, res) => {
       const id = req.params.id;
       const contest = req.body;
@@ -400,7 +407,32 @@ async function run() {
       res.send({success: true, data:result});
     })
 
-
+    app.post('/add-comment/:id', async (req, res) => {
+      const contestId = req.params.id;
+      const { comment } = req.body;
+    
+      if (!comment) {
+        return res.status(400).send({ success: false, message: 'Comment text is required' });
+      }
+    
+      try {
+        const result = await contestsCollection.updateOne(
+          { _id: new ObjectId(contestId) },
+          {
+            $push: { comments: comment }
+          },
+          { upsert: true }
+        );
+    
+        if (result.matchedCount === 0 && result.upsertedCount === 0) {
+          return res.status(404).send({ success: false, message: 'Contest not found' });
+        }
+    
+        res.status(200).send({ success: true, message: 'Comment added successfully' });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
     // participations
     app.post('/participations', async (req, res) => {
@@ -408,7 +440,6 @@ async function run() {
       const result = await participationCollection.insertOne(participation);
       res.send({success: true, data:result});
     })
-
 
     //payment intent
     app.post('/create-payment-intent', async (req, res) => {
