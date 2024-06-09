@@ -166,15 +166,25 @@ async function run() {
         const contests = await contestsCollection.aggregate([
           {
             $match: {
-              type: { $regex: regex },
-              status: 'approved'
+              status: 'approved',
+              $or: [
+                { name: { $regex: regex } },
+                { description: { $regex: regex } },
+                { type: { $regex: regex } }
+              ]
             }
           },
           {
             $lookup: {
               from: 'participations',
-              localField: '_id',
-              foreignField: 'contestId',
+              let: { contestId: { $toString: '$_id' } },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $eq: ['$contestId', '$$contestId'] }
+                  }
+                }
+              ],
               as: 'participations'
             }
           },
@@ -184,19 +194,35 @@ async function run() {
             }
           },
           {
-            $sort: { participationsCount: -1 }
+            $lookup: {
+              from: 'users',
+              localField: 'participations.user_email',
+              foreignField: 'email',
+              as: 'participantDetails'
+            }
           },
           {
             $project: {
               name: 1,
               image: 1,
+              description: 1,
               price: 1,
               price_money: 1,
-              due: 1,
-              creator_email: 1,
+              instruction: 1,
               type: 1,
-              participationsCount: 1
+              due: 1,
+              status: 1,
+              creator_email: 1,
+              participationsCount: 1,
+              participantDetails: {
+                _id: 1,
+                name: 1,
+                email: 1
+              }
             }
+          },
+          {
+            $sort: { due: -1 }
           }
         ]).toArray();
     
@@ -224,8 +250,28 @@ async function run() {
       try {
         const contest = await contestsCollection.aggregate([
           {
-            $match: {
-              _id: new ObjectId(id)
+            $match: { _id: new ObjectId(id) }
+          },
+          {
+            $lookup: {
+              from: 'participations',
+              let: { contestId: { $toString: '$_id' } },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $eq: ['$contestId', '$$contestId'] }
+                  }
+                }
+              ],
+              as: 'participations'
+            }
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'participations.user_email',
+              foreignField: 'email',
+              as: 'participantDetails'
             }
           },
           {
@@ -243,19 +289,8 @@ async function run() {
             }
           },
           {
-            $lookup: {
-              from: 'participations',
-              localField: '_id',
-              foreignField: 'contestId',
-              as: 'participations'
-            }
-          },
-          {
-            $lookup: {
-              from: 'users',
-              localField: 'participations.userId',
-              foreignField: '_id',
-              as: 'participatorsDetails'
+            $addFields: {
+              participationsCount: { $size: '$participations' }
             }
           },
           {
@@ -270,16 +305,9 @@ async function run() {
               due: 1,
               status: 1,
               creator_email: 1,
-              'creatorDetails.name': 1,
-              'creatorDetails.email': 1,
-              'creatorDetails.photoURL': 1,
-              participations: 1,
-              participatorsDetails: {
-                _id: 1,
-                name: 1,
-                email: 1,
-                photoURL: 1
-              }
+              creatorDetails: { name: 1, email: 1, photoURL: 1 },
+              participationsCount: 1,
+              participantDetails: 1
             }
           }
         ]).toArray();
@@ -288,7 +316,7 @@ async function run() {
           return res.status(404).send({ success: false, message: 'Contest not found' });
         }
     
-        res.send({ success: true, data: contest[0] });
+        res.status(200).send({ success: true, data: contest[0] });
       } catch (error) {
         res.status(500).send({ success: false, message: error.message });
       }
