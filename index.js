@@ -42,6 +42,36 @@ app.listen(PORT, () => {
 });
 
 
+const verifyToken = async (req, res, next) => {
+  const token = req.cookies.token;
+  // console.log("verifying token....");
+  let flag = true
+  if(token) {
+    jwt.verify(token, process.env.JWT_SECRET, (err) => {
+        if(err) {
+          flag = false
+           return
+        }
+    })
+   
+  } else{
+    return res.status(401).send({ message: "Not authorized!", login: false });
+  }
+
+  if(!flag){
+   res.status(401).send({ message: "Not authorized!", login: false });
+   return
+  }
+  else next();
+  
+};
+
+const maxAge = 1 * 24 * 60 * 60
+
+
+
+
+
 
 async function run() {
   try {
@@ -50,6 +80,38 @@ async function run() {
     const usersCollection = database.collection("users");
     const participationCollection = database.collection('participations')
 
+     //authentication
+     app.post("/jwt",  async (req, res) => {
+      const user = req.body;
+      console.log(user);
+      console.log(process.env.JWT_SECRET);
+      const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "1h" });
+
+      res
+        .cookie("token", token, {
+          httpOnly: true,
+          maxAge: maxAge * 1000,
+          sameSite: "none",
+          secure: true,
+        })
+        .send({ success: true });
+    });
+
+
+    app.get("/check_login",verifyToken, async (req, res) => {
+      res.send({ login: true });
+    })
+
+    //logout
+    app.post("/logout", async (req, res) => {
+      const user = req.body;
+      console.log("logging out", user);
+      res
+        .clearCookie("token", { ...cookieOptions, maxAge: 0 })
+        .send({ success: true });
+    });
+
+    
  
 
 
