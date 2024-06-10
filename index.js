@@ -64,8 +64,6 @@ async function run() {
       res.send({success: true, data:user})
     })
 
-
-
     // post+
     app.post('/user', async (req, res) => {
       const user = req.body;
@@ -75,11 +73,11 @@ async function run() {
       res.send({success: true, data:result});
     })
 
-    app.put('/users/:id', async (req, res) => {
-      const id = req.params.id;
+    app.put('/users/:email', async (req, res) => {
+      const email = req.params.email;
       const user = req.body;
       console.log(user);
-      const filter = { _id: new ObjectId(id) };
+      const filter = { email: email };
       const options = { upsert: true };
       const updateDoc = {
         $set: user,
@@ -231,7 +229,6 @@ async function run() {
       }
     });
 
-
     //contest search
     app.get('/contests/search', async (req, res) => {
       const keyword = req.query.keyword;
@@ -315,7 +312,6 @@ async function run() {
         res.status(500).send({ success: false, message: error.message });
       }
     });
-
 
 
     app.post('/contests', async (req, res) => {
@@ -531,6 +527,218 @@ async function run() {
         res.status(500).send({ success: false, message: error.message });
       }
     });
+  
+
+    //all participaitions
+    app.get('/participations', async (req, res) => {
+      try {
+        const participations = await participationCollection.aggregate([
+          {
+            $lookup: {
+              from: 'contests',
+              let: { contestId: { $toObjectId: '$contestId' } },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $eq: ['$_id', '$$contestId'] }
+                  }
+                },
+                {
+                  $project: {
+                    name: 1,
+                    image: 1,
+                    description: 1,
+                    price: 1,
+                    price_money: 1,
+                    instruction: 1,
+                    type: 1,
+                    due: 1,
+                    status: 1,
+                    creator_email: 1
+                  }
+                }
+              ],
+              as: 'contestDetails'
+            }
+          },
+          {
+            $unwind: {
+              path: '$contestDetails',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'user_email',
+              foreignField: 'email',
+              as: 'userDetails'
+            }
+          },
+          {
+            $unwind: {
+              path: '$userDetails',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $project: {
+              contestId: 1,
+              user_email: 1,
+              paymentIntentId: 1,
+              paid_at: 1,
+              isWinner: 1,
+              contestDetails: 1,
+              userDetails: {
+                name: 1,
+                email: 1,
+                photoURL: 1
+              }
+            }
+          }
+        ]).toArray();
+    
+        res.send({ success: true, data: participations });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+     
+
+    //particapations by email
+    app.get('/participations/:email', async (req, res) => {
+      const email = req.params.email;
+      
+      try {
+        const participations = await participationCollection.aggregate([
+          {
+            $match: { user_email: email }
+          },
+          {
+            $lookup: {
+              from: 'contests',
+              let: { contestId: { $toObjectId: '$contestId' } },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $eq: ['$_id', '$$contestId'] }
+                  }
+                },
+                {
+                  $project: {
+                    name: 1,
+                    image: 1,
+                    description: 1,
+                    price: 1,
+                    price_money: 1,
+                    instruction: 1,
+                    type: 1,
+                    due: 1,
+                    status: 1,
+                    creator_email: 1,
+                    
+                  }
+                }
+              ],
+              as: 'contestDetails'
+            }
+          },
+          {
+            $unwind: {
+              path: '$contestDetails',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'user_email',
+              foreignField: 'email',
+              as: 'userDetails'
+            }
+          },
+          {
+            $unwind: {
+              path: '$userDetails',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $project: {
+              contestId: 1,
+              user_email: 1,
+              paymentIntentId: 1,
+              paid_at: 1,
+              contestDetails: 1,
+              isWinner: 1,
+              task: 1,
+              quickNote: 1,
+              userDetails: {
+                name: 1,
+                email: 1,
+                photoURL: 1
+              }
+            }
+          }
+        ]).toArray();
+    
+        res.send({ success: true, data: participations });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
+    app.get('/winning-count/:email', async (req, res) => {
+      const email = req.params.email;
+    
+      try {
+        const totalContests = await contestsCollection.countDocuments();
+        const result = await participationCollection.aggregate([
+          {
+            $match: { user_email: email }
+          },
+          {
+            $group: {
+              _id: '$user_email',
+              totalParticipations: { $sum: 1 },
+              totalWins: { $sum: { $cond: ['$isWinner', 1, 0] } }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              user_email: '$_id',
+              winPercentage: {
+                $cond: {
+                  if: { $eq: ['$totalParticipations', 0] },
+                  then: 0,
+                  else: {
+                    $multiply: [{ $divide: ['$totalWins', '$totalParticipations'] }, 100]
+                  }
+                }
+              },
+              attemptedPercentage: {
+                $cond: {
+                  if: { $eq: [totalContests, 0] },
+                  then: 0,
+                  else: {
+                    $multiply: [{ $divide: ['$totalParticipations', totalContests] }, 100]
+                  }
+                }
+              }
+            }
+          }
+        ]).toArray();
+    
+        if (result.length === 0) {
+          return res.status(404).send({ success: false, message: 'No participations found for this user' });
+        }
+    
+        res.send({ success: true, data: [result[0].winPercentage, result[0].attemptedPercentage, 100-(result[0].winPercentage+result[0].attemptedPercentage)],  winPercentage: result[0].winPercentage, attemptedPercentage: result[0].attemptedPercentage });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
     // participations
     app.post('/participations', async (req, res) => {
@@ -538,6 +746,106 @@ async function run() {
       const result = await participationCollection.insertOne(participation);
       res.send({success: true, data:result});
     })
+
+    //leaderboard
+    app.get('/leaderboard', async (req, res) => {
+      try {
+        const leaderboard = await usersCollection.aggregate([
+          {
+            $match: { role: { $ne: 'admin' } }
+          },
+          {
+            $lookup: {
+              from: 'participations',
+              localField: 'email',
+              foreignField: 'user_email',
+              as: 'participations'
+            }
+          },
+          {
+            $lookup: {
+              from: 'contests',
+              let: { contestIds: '$participations.contestId' },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $in: [{ $toString: '$_id' }, '$$contestIds'] }
+                  }
+                },
+                {
+                  $project: {
+                    _id: 1,
+                    name: 1,
+                    type: 1,
+                    due: 1,
+                    status: 1
+                  }
+                }
+              ],
+              as: 'contestDetails'
+            }
+          },
+          {
+            $addFields: {
+              totalParticipations: { $size: '$participations' },
+              totalWins: {
+                $size: {
+                  $filter: {
+                    input: '$participations',
+                    as: 'participation',
+                    cond: { $eq: ['$$participation.isWinner', true] }
+                  }
+                }
+              }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              email: 1,
+              name: 1,
+              photoURL: 1,
+              totalParticipations: 1,
+              totalWins: 1,
+              contestDetails: 1
+            }
+          },
+          {
+            $sort: { totalWins: -1, totalParticipations: -1 }
+          }
+        ]).toArray();
+    
+        res.send({ success: true, data: leaderboard });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+    
+
+
+    app.put('/submission-update/:id', async (req, res) => {
+      const participationId = req.params.id;
+      const updateFields = req.body;
+    
+      if (!ObjectId.isValid(participationId)) {
+        return res.status(400).send({ success: false, message: 'Invalid participation ID' });
+      }
+    
+      try {
+        const result = await participationCollection.updateOne(
+          { _id: new ObjectId(participationId) },
+          { $set: updateFields }
+        );
+    
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ success: false, message: 'Participation not found' });
+        }
+    
+        res.status(200).send({ success: true, message: 'Participation updated successfully' });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
     app.post('/submit-task', async (req, res) => {
       const { contestId, user_email, updateFields } = req.body;
@@ -557,6 +865,102 @@ async function run() {
         }
     
         res.status(200).send({ success: true, message: 'Participation updated successfully' });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
+
+    //participations for creator
+    app.get('/contests-by-creator/:email', async (req, res) => {
+      const creatorEmail = req.params.email;
+    
+      try {
+        const contests = await contestsCollection.aggregate([
+          {
+            $match: { creator_email: creatorEmail }
+          },
+          {
+            $lookup: {
+              from: 'participations',
+              let: { contestId: { $toString: '$_id' } },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $eq: ['$contestId', '$$contestId'] }
+                  }
+                },
+                {
+                  $lookup: {
+                    from: 'users',
+                    localField: 'user_email',
+                    foreignField: 'email',
+                    as: 'userDetails'
+                  }
+                },
+                {
+                  $unwind: {
+                    path: '$userDetails',
+                    preserveNullAndEmptyArrays: true
+                  }
+                },
+                {
+                  $addFields: {
+                    participant: {
+                      id: '$_id',
+                      isWinner: '$isWinner',
+                      user_email: '$user_email',
+                      paymentIntentId: '$paymentIntentId',
+                      paid_at: '$paid_at',
+                      name: '$userDetails.name',
+                      email: '$userDetails.email',
+                      task: "$task",
+                      quickNote: "$quickNote",
+                    }
+                  }
+                },
+                {
+                  $project: {
+                    _id: 0,
+                    participant: 1
+                  }
+                }
+              ],
+              as: 'participants'
+            }
+          },
+          {
+            $addFields: {
+              participantsCount: { $size: '$participants' }
+            }
+          },
+          {
+            $match: {
+              participantsCount: { $gte: 1 }
+            }
+          },
+          {
+            $project: {
+              name: 1,
+              image: 1,
+              description: 1,
+              price: 1,
+              price_money: 1,
+              instruction: 1,
+              type: 1,
+              due: 1,
+              status: 1,
+              creator_email: 1,
+              participantsCount: 1,
+              participants: '$participants.participant'
+            }
+          },
+          {
+            $sort: { due: -1 }
+          }
+        ]).toArray();
+    
+        res.status(200).send({ success: true, data: contests });
       } catch (error) {
         res.status(500).send({ success: false, message: error.message });
       }
