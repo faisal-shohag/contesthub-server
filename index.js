@@ -86,6 +86,30 @@ async function run() {
       res.send({success: true, data:result});
     })
 
+    app.put('/user/:id', async (req, res) => {
+      const userId = req.params.id;
+      const updateFields = req.body;
+    
+      if (!ObjectId.isValid(userId)) {
+        return res.status(400).send({ success: false, message: 'Invalid user ID' });
+      }
+    
+      try {
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: updateFields }
+        );
+    
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ success: false, message: 'User not found' });
+        }
+    
+        res.status(200).send({ success: true, message: 'User updated successfully' });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
 
     // contests
     app.get("/contests", async (req, res) => {
@@ -986,6 +1010,69 @@ async function run() {
       res.send({ success: true, data: result });
     })
 
+
+    //top creators
+    app.get('/top-creators', async (req, res) => {
+      try {
+        const topCreators = await contestsCollection.aggregate([
+          {
+            $lookup: {
+              from: 'participations',
+              localField: '_id',
+              foreignField: 'contestId',
+              as: 'participations'
+            }
+          },
+          {
+            $addFields: {
+              participantCount: { $size: '$participations' }
+            }
+          },
+          {
+            $group: {
+              _id: '$creator_email',
+              totalParticipants: { $sum: '$participantCount' }
+            }
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: '_id',
+              foreignField: 'email',
+              as: 'creatorDetails'
+            }
+          },
+          {
+            $unwind: '$creatorDetails'
+          },
+          {
+            $match: { 'creatorDetails.role': 'creator' }
+          },
+          {
+            $project: {
+              _id: 0,
+              creator_email: '$_id',
+              totalParticipants: 1,
+              creatorDetails: {
+                name: 1,
+                email: 1,
+                photoURL: 1
+              }
+            }
+          },
+          {
+            $sort: { totalParticipants: -1 }
+          },
+          {
+            $limit: 3
+          }
+        ]).toArray();
+    
+        res.send({ success: true, data: topCreators });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
 
 
 
