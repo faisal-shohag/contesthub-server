@@ -111,9 +111,6 @@ async function run() {
         .send({ success: true });
     });
 
-    
- 
-
 
     app.get('/users', async (req, res) => {
       const users = await usersCollection.find().sort({ name: 1 }).toArray();
@@ -135,7 +132,7 @@ async function run() {
       res.send({success: true, data:result});
     })
 
-    app.put('/users/:email', async (req, res) => {
+    app.put('/users/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
       const user = req.body;
       console.log(user);
@@ -167,6 +164,67 @@ async function run() {
         }
     
         res.status(200).send({ success: true, message: 'User updated successfully' });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
+
+    //delete user
+    app.delete('/user/:email', async (req, res) => {
+      const email = req.params.email;
+      try {
+        // Delete user from users collection
+        const userResult = await usersCollection.deleteOne({ email: email });
+    
+        // Delete user's participations
+        const participationResult = await participationCollection.deleteMany({ user_email: email });
+    
+        // Delete contests created by the user
+        const contestResult = await contestsCollection.deleteMany({ creator_email: email });
+    
+        if (userResult.deletedCount === 0) {
+          return res.status(404).send({ success: false, message: 'User not found' });
+        }
+    
+        res.status(200).send({
+          success: true,
+          message: 'User and related data deleted successfully',
+          deletedUser: userResult.deletedCount,
+          deletedParticipations: participationResult.deletedCount,
+          deletedContests: contestResult.deletedCount
+        });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
+
+    //delete contests
+    app.delete('/contest/:id', async (req, res) => {
+      const contestId = req.params.id;
+    
+      if (!ObjectId.isValid(contestId)) {
+        return res.status(400).send({ success: false, message: 'Invalid contest ID' });
+      }
+    
+      try {
+        // Delete contest from contests collection
+        const contestResult = await contestsCollection.deleteOne({ _id: new ObjectId(contestId) });
+    
+        // Delete participations related to the contest
+        const participationResult = await participationCollection.deleteMany({ contestId: contestId });
+    
+        if (contestResult.deletedCount === 0) {
+          return res.status(404).send({ success: false, message: 'Contest not found' });
+        }
+    
+        res.status(200).send({
+          success: true,
+          message: 'Contest and related data deleted successfully',
+          deletedContest: contestResult.deletedCount,
+          deletedParticipations: participationResult.deletedCount
+        });
       } catch (error) {
         res.status(500).send({ success: false, message: error.message });
       }
@@ -514,7 +572,7 @@ async function run() {
     });
     
 
-    app.get('/my_contests/:email', async (req, res) => {
+    app.get('/my_contests/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
       const page = parseInt(req.query.page) || 1; // Default to page 1 if not provided
       const limit = 10; // 10 items per page
@@ -588,7 +646,7 @@ async function run() {
       res.send({success: true, data:result});
     })
 
-    app.post('/add-comment/:id', async (req, res) => {
+    app.post('/add-comment/:id', verifyToken,  async (req, res) => {
       const contestId = req.params.id;
       const { comment } = req.body;
     
@@ -692,7 +750,7 @@ async function run() {
      
 
     //particapations by email
-    app.get('/participations/:email', async (req, res) => {
+    app.get('/participations/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
       
       try {
@@ -958,7 +1016,7 @@ async function run() {
 
 
     //participations for creator
-    app.get('/contests-by-creator/:email', async (req, res) => {
+    app.get('/contests-by-creator/:email', verifyToken, async (req, res) => {
       const creatorEmail = req.params.email;
     
       try {
@@ -1076,67 +1134,37 @@ async function run() {
     //top creators
     app.get('/top-creators', async (req, res) => {
       try {
-        const topCreators = await contestsCollection.aggregate([
-          {
-            $lookup: {
-              from: 'participations',
-              localField: '_id',
-              foreignField: 'contestId',
-              as: 'participations'
-            }
-          },
-          {
-            $addFields: {
-              participantCount: { $size: '$participations' }
-            }
-          },
-          {
-            $group: {
-              _id: '$creator_email',
-              totalParticipants: { $sum: '$participantCount' }
-            }
-          },
+        // Aggregate to count participations by creator_email and then sort in descending order
+        const leaderboard = await participationCollection.aggregate([
+          { $group: { _id: '$creator_email', count: { $sum: 1 } } },
+          { $sort: { count: -1 } },
+          { $limit: 3 },
           {
             $lookup: {
               from: 'users',
               localField: '_id',
               foreignField: 'email',
-              as: 'creatorDetails'
+              as: 'creator_info'
             }
-          },
-          {
-            $unwind: '$creatorDetails'
-          },
-          {
-            $match: { 'creatorDetails.role': 'creator' }
           },
           {
             $project: {
               _id: 0,
               creator_email: '$_id',
-              totalParticipants: 1,
-              creatorDetails: {
-                name: 1,
-                email: 1,
-                photoURL: 1
-              }
+              count: 1,
+              'creator_info.name': 1,
+              'creator_info.photoURL': 1,
+              'creator_info.email': 1
             }
-          },
-          {
-            $sort: { totalParticipants: -1 }
-          },
-          {
-            $limit: 3
           }
         ]).toArray();
     
-        res.send({ success: true, data: topCreators });
-      } catch (error) {
-        res.status(500).send({ success: false, message: error.message });
+        res.json({ success: true, data: leaderboard });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Internal Server Error' });
       }
     });
-
-
 
 
   } finally {
